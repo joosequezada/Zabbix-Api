@@ -1,100 +1,162 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 import requests
 import json
 
-url = "http://192.168.33.10/api_jsonrpc.php"
 
-headers = {'Content-Type': 'application/json'}
+class ZabbixAPI:
+
+    def __init__(self,
+                 server,
+                 username,
+                 password,
+                 headers={'Content-Type': 'application/json'},
+                 version="2.0"
+                 ):
+
+        self.url = "http://" + server + "/api_jsonrpc.php"
+        self.headers = headers
+        self.username = username
+        self.password = password
+        self.version = version
+
+    def login(self):
+
+        login = json.dumps({
+
+            "jsonrpc": self.version,
+            "method": "user.login",
+            "params": {
+                "user": self.username,
+                "password": self.password
+            },
+            "id": 1,
+        }
+        )
+
+        r = requests.get(self.url, headers=self.headers, data=login)
+        info = r.json()
+        return info
+
+    def logout(self, auth_code):
+        self.auth_code = auth_code
+
+        logout = json.dumps({
+
+            "jsonrpc": self.version,
+            "method": "user.logout",
+            "params": [],
+            "id": 1,
+            "auth": self.auth_code
+        })
+
+        r = requests.get(self.url, headers=self.headers, data=logout)
+        info = r.json()
+        return info["result"]
+
+    def get_hosts(self, auth_code):
+
+        self.auth_code = auth_code
+
+        data = json.dumps({
+            "jsonrpc": self.version,
+            "method": "host.get",
+            "params": {
+                "output": [
+                      "extend",
+                      "groupid",
+                      "name",
+                ]
+            },
+            "id": 2,
+            "auth": self.auth_code,
+        })
+
+        r = requests.get(self.url, headers=self.headers, data=data)
+        info = r.json()
+        return info['result']
+
+    def get_hostgroups(self, auth_code):
+        self.auth_code = auth_code
+
+        data = json.dumps({
+
+            "jsonrpc": self.version,
+            "method": "hostgroup.get",
+            "params": {
+                "output":
+                    "extend",
+            },
+            "auth": self.auth_code,
+            "id": 1
+        })
+
+        r = requests.get(self.url, headers=self.headers, data=data)
+        info = r.json()
+        return info
+
+    def host_interface(self, auth_code, hostid):
+        self.auth_code = auth_code
+        self.hostid = hostid
+
+        data = json.dumps({
+
+            "jsonrpc": self.version,
+            "method": "hostinterface.get",
+            "params": {
+                "output": "extend",
+                "hostids": self.hostid,
+            },
+            "auth": self.auth_code,
+            "id": 1,
+        })
+
+        r = requests.get(self.url, headers=self.headers, data=data)
+        info = r.json()
+        return info['result']
 
 
-def user_api_login(username, password, version="2.0"):
+zabbix = ZabbixAPI(server="192.168.33.10",
+                   username="zabbix-api",
+                   password="zabbix")
 
-    login = json.dumps({
+api_info = zabbix.login()
+auth_code = api_info.get('result')
+all_hosts = zabbix.get_hosts(auth_code)
+all_hostgroups = zabbix.get_hostgroups(auth_code)
 
-        "jsonrpc": version,
-        "method": "user.login",
-        "params": {
-            "user": username,
-            "password": password
-        },
-        "id": 1,
-    }
-    )
+print("API Version: {version}\
+       \nAuthentication Code: {code}\
+       \nSession Id: {id}\n".format(code=api_info.get('result'),
+                                    version=api_info.get('jsonrpc'),
+                                    id=api_info.get('id')))
+count = []
+for host in all_hosts:
+    count.append(host['name'])
 
-    r = requests.get(url, headers=headers, data=login)
-    info = r.json()
-    return info["result"]
-
-
-def user_api_logout(auth_code, version="2.0"):
-
-    logout = json.dumps({
-
-        "jsonrpc": version,
-        "method": "user.logout",
-        "params": [],
-        "id": 1,
-        "auth": auth_code
-    })
-
-    r = requests.get(url, headers=headers, data=logout)
-    info = r.json()
-    return info["result"]
+print("Total Hosts: {total} \n".format(total=len(count)))
 
 
-def get_zabbix_hosts(auth_code):
+for host in all_hosts:
+    hostid = host['hostid']
+    interfaces = zabbix.host_interface(auth_code, hostid)
+    for interface in interfaces:
+        if interface['useip'] == '1':
+            print("Host Id:", host['hostid'],
+                  "\tHost name:", host['name'],
+                  "Interface: ", interface['ip'])
+        else:
+            print("Host Id:", host['hostid'],
+                  "\tHost name:", host['name'],
+                  "Interface: ", interface['dns'])
 
-    data = json.dumps({
-
-        "jsonrpc": "2.0",
-        "method": "host.get",
-        "params": {
-            "output": [
-                  "extend",
-                  "groupid",
-                  "name",
-            ]
-        },
-        "id": 2,
-        "auth": auth_code,
-    })
-
-    r = requests.get(url, headers=headers, data=data)
-    info = r.json()
-    return info
-
-
-def get_zabbix_hostgroup(auth_code):
-
-    data = json.dumps({
-
-        "jsonrpc": "2.0",
-        "method": "hostgroup.get",
-        "params": {
-            "output":
-                "extend",
-        },
-        "auth": auth_code,
-        "id": 1
-    })
-
-    r = requests.get(url, headers=headers, data=data)
-    info = r.json()
-    return info
-
-
-auth_code = user_api_login(username="zabbix-api", password="zabbix")
-all_hosts = get_zabbix_hosts(auth_code)
-all_hostgroups = get_zabbix_hostgroup(auth_code)
-auth_logout = user_api_logout(auth_code)
-
-print("Authentication Code: {} \n".format(auth_code))
-print("User logout: {} \n".format(auth_logout))
-
-for host in all_hosts['result']:
-    print("Host ID:", host['hostid'], "\tHost name:", host['name'])
+print(" ")
 
 for group in all_hostgroups['result']:
-    print("Group ID:", group['groupid'], "\tGroup name:", group['name'])
+    print("Group Id:", group['groupid'], "\tGroup name:", group['name'])
 
+print(" ")
+
+auth_logout = zabbix.logout(auth_code)
+print("User logout: {} \n".format(auth_logout))
